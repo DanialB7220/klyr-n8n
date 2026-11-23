@@ -1,38 +1,29 @@
-# Use this Blueprint to deploy n8n on Render as a web
-# service that uses a Postgres database to store
-# workflow data.
-#
-# This Blueprint uses free instance types (specified by
-# `plan`) for both the web service and the database. You
-# can upgrade to paid instance types at any time to
-# increase resources.
+# KLYR Agent OS — n8n + Postgres on Render
+# Based on render-examples/n8n, changed for production:
+#   - paid plans (free Postgres is deleted after 30 days; free web services sleep and miss webhooks)
+#   - n8n version pinned (upgrade on purpose, monthly: change the tag below and commit)
+#   - KLYR settings added (domain, timezone, execution pruning)
+#   - both services in the same region so n8n reaches the database over Render's private network
 
 services:
   - type: web
-    plan: free
-    # This is the runtime for services that pull a prebuilt Docker image
+    # 1 CPU / 2 GB
+    plan: standard
+    region: virginia
     runtime: image
-    # You can give the service any name
     name: n8n-service
     image:
-      # Pulls the n8n image tagged as latest from Docker Hub
-      url: docker.io/n8nio/n8n:latest
+      # Pinned to the stable release as of 2026-11-23. Never use :latest here.
+      url: docker.io/n8nio/n8n:2.48.8
 
-    # All environment variables defined below are required!
-    #
-    # You can define additional environment variables as needed.
     envVars:
-      # Generates a base64-encoded key for
-      # encrypting credentials in n8n
-      #
+      # Encrypts every credential saved in n8n.
       # Do not modify this value after it's generated!
-      # If you do, you'll lose access to all credentials
-      # encrypted with the previous value.
+      # Copy it into the password manager as soon as the first deploy finishes.
       - key: N8N_ENCRYPTION_KEY
         generateValue: true
 
-      # These automatically populate connection details 
-      # for the Render Postgres database defined below
+      # Database connection (filled in automatically from n8n-db below)
       - key: DB_TYPE
         value: postgresdb
       - key: DB_POSTGRESDB_DATABASE
@@ -52,14 +43,30 @@ services:
           name: n8n-db
           property: user
 
+      # Public address. Webhook URLs n8n hands out (GHL, Stripe, WhatsApp) use this.
+      - key: WEBHOOK_URL
+        value: https://agents.klyrmedia.com/
+      - key: N8N_HOST
+        value: agents.klyrmedia.com
+      - key: N8N_PROTOCOL
+        value: https
+
+      # Scheduled workflows (e.g. the 7am digest) run on Eastern time
+      - key: GENERIC_TIMEZONE
+        value: America/New_York
+      - key: TZ
+        value: America/New_York
+
+      # Keep 14 days of execution history so the database stays small
+      - key: EXECUTIONS_DATA_PRUNE
+        value: "true"
+      - key: EXECUTIONS_DATA_MAX_AGE
+        value: "336"
+
 databases:
   - name: n8n-db
-    plan: free
-    # The free instance type is limited to 1 GB of disk
-    # space.
-    #
-    # If you later upgrade to a paid instance type, you can
-    # increase the disk size to any multiple of 5 GB by
-    # setting the `diskSizeGB` property.
-    #
-    # diskSizeGB: 5
+    # Smallest paid Postgres plan (0.1 CPU / 256 MB). Never expires.
+    plan: basic-256mb
+    region: virginia
+    # Storage in GB (multiples of 5). Plenty for n8n + the ops ledger to start.
+    diskSizeGB: 5
